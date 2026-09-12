@@ -1,0 +1,51 @@
+name: Publish to Vocareum
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  check-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Validate Lab Configuration
+        id: check_config
+        run: |
+          CONFIG_FILE=".vocareum/lab_config.json"
+          
+          # 1. Check if the configuration file even exists
+          if [ -f "$CONFIG_FILE" ]; then
+            # 2. Extract the lab_type value cleanly using jq
+            LAB_TYPE=$(jq -r '.lab_type' "$CONFIG_FILE")
+            echo "Detected lab_type: '$LAB_TYPE'"
+            
+            # 3. Only whitelist your explicit deployment platforms
+            if [ "$LAB_TYPE" = "Databricks" ] || [ "$LAB_TYPE" = "Visual Studio Code" ]; then
+              echo "should_deploy=true" >> $GITHUB_OUTPUT
+              echo "::notice::Lab type is '$LAB_TYPE' - proceeding with Vocareum deployment"
+            else
+              echo "should_deploy=false" >> $GITHUB_OUTPUT
+              echo "::notice::Lab type is '$LAB_TYPE' (Local/Unsupported) - skipping Vocareum deployment"
+            fi
+          else
+            echo "should_deploy=false" >> $GITHUB_OUTPUT
+            echo "::notice::Missing $CONFIG_FILE - skipping Vocareum deployment"
+          fi
+        
+      - name: Invoke Lambda (if Vocareum deployment is active)
+        if: steps.check_config.outputs.should_deploy == 'true'
+        env:
+          LAMBDA_URL: "https://oiegovmkaet2vkohoxuhnp5gwq0cchma.lambda-url.us-east-2.on.aws/"
+        run: |
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            -d '{
+              "repository": "${{ github.repository }}",
+              "user": "${{ github.actor }}",
+              "event_type": "${{ github.event_name }}",
+              "commit_sha": "${{ github.sha }}"
+            }' \
+            "$LAMBDA_URL"

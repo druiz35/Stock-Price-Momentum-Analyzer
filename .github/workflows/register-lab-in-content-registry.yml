@@ -1,0 +1,73 @@
+name: Register lab in Content Registry
+on:
+  
+  push:
+    branches:
+      - main
+    paths:
+        - "README.md"
+  workflow_dispatch:
+  
+jobs:
+  check-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check if repo ends with -homework
+        id: check_repo
+        run: |
+          REPO_NAME="${GITHUB_REPOSITORY##*/}"
+          echo "Repository name: $REPO_NAME"
+          if [[ "$REPO_NAME" == *"-homework"* ]]; then
+            echo "is_homework=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_homework=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Invoke Lambda
+        id: invoke_lambda
+        if: steps.check_repo.outputs.is_homework == 'false' 
+        env:
+          LAMBDA_URL: "https://tfxd2wykxxbpjngcccwercrj3u0pfdjj.lambda-url.us-east-2.on.aws/"
+        run: |      
+          echo "Invoking Lambda for register instructor repo..."              
+          response_output=$(curl -s -w "%{http_code}" -X POST \
+            -H "Content-Type: application/json" \
+            -d '{
+              "repository": "${{ github.repository }}",
+              "user": "${{ github.actor }}",
+              "event_type": "${{ github.event_name }}",
+              "commit_sha": "${{ github.sha }}"
+            }' \
+            "$LAMBDA_URL")
+
+          # Separate the status code from the response body.
+          http_code=$(echo "$response_output" | sed 's/.*\(...\)$/\1/')
+          response_body=$(echo "$response_output" | sed 's/\(...\)$//')
+          
+          echo "Lambda returned HTTP status code: $http_code"
+          echo "Lambda response body: $response_body"
+          
+          # Use GITHUB_OUTPUT to make the variables available to other steps
+          echo "http_code=$http_code" >> $GITHUB_OUTPUT
+          echo "response_body=$response_body" >> $GITHUB_OUTPUT
+      
+      - name: Skip workflow for -homework repos
+        if: steps.check_repo.outputs.is_homework == 'false'
+        run: |
+          echo "This repository is a homework repo. Skipping Lambda invocation."
+
+      - name: Check Lambda Response
+        if: steps.invoke_lambda.outputs.http_code != '200'
+        run: |
+          echo "Lambda invocation failed with HTTP status code: ${{ steps.invoke_lambda.outputs.http_code }}"
+          echo "Response Body:"
+          echo "${{ steps.invoke_lambda.outputs.response_body }}"
+          exit 1 # This will cause the workflow to fail.
+
+      - name: Success
+        if: steps.invoke_lambda.outputs.http_code == '200'
+        run: |
+          echo "Lambda successfully processed the request."
+          echo "Response Body:"
+          echo "${{ steps.invoke_lambda.outputs.response_body }}" 
+ 

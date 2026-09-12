@@ -1,0 +1,24 @@
+name: Publish homework
+on:
+  push:
+    branches: main
+  workflow_dispatch:
+  
+jobs:
+  check-and-publish:
+    runs-on: ubuntu-latest
+    steps:      
+        
+      - name: Invoke Lambda
+        env:
+          LAMBDA_URL: "https://3qz5ni4bqbau6f4qz7eir2wxey0yaops.lambda-url.us-east-2.on.aws/"
+        run: |
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            -d '{
+              "repository": "${{ github.repository }}",
+              "user": "${{ github.actor }}",
+              "event_type": "${{ github.event_name }}",
+              "commit_sha": "${{ github.sha }}"
+            }' \
+            "$LAMBDA_URL"
